@@ -22,9 +22,11 @@ export function validateEnvironment(config: Record<string, unknown>): AppEnviron
     );
   }
 
-  const port = Number(config.API_PORT ?? 4732);
+  // Local development uses API_PORT; hosting platforms provide PORT.
+  // Precedence: API_PORT, then PORT, then the local default.
+  const port = Number(config.API_PORT ?? config.PORT ?? 4732);
   if (!Number.isInteger(port) || port <= 0) {
-    throw new Error('API_PORT must be a positive integer');
+    throw new Error('API_PORT (or PORT) must be a positive integer');
   }
 
   return {
