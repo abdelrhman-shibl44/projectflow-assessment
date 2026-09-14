@@ -7,6 +7,7 @@ import { Comment, type CommentDocument } from '../comments/schemas/comment.schem
 import { canManage, ProjectAccessService } from '../projects/project-access.service';
 import { ProjectMembersService } from '../project-members/project-members.service';
 import { Project, type ProjectDocument } from '../projects/schemas/project.schema';
+import { TaskActivitiesService } from '../task-activities/task-activities.service';
 import { UsersService } from '../users/users.service';
 import type { CreateTaskDto } from './dto/create-task.dto';
 import type { ListTasksQueryDto } from './dto/list-tasks.dto';
@@ -22,6 +23,7 @@ export class TasksService {
     @InjectModel(Comment.name) private readonly commentModel: Model<CommentDocument>,
     private readonly projectAccessService: ProjectAccessService,
     private readonly projectMembersService: ProjectMembersService,
+    private readonly taskActivitiesService: TaskActivitiesService,
     private readonly usersService: UsersService,
   ) {}
 
@@ -92,6 +94,8 @@ export class TasksService {
     const task = await this.findTaskOrFail(taskId);
     const access = await this.projectAccessService.assertCanView(task.projectId, userId);
 
+    const previousAssigneeId = task.assigneeId ?? null;
+
     const isCreator = task.createdBy.equals(userId);
     const canEditTask = canManage(access) || isCreator;
 
@@ -146,6 +150,25 @@ export class TasksService {
     }
 
     await task.save();
+
+    // Activity history is written after the authoritative task change so the
+    // assignment never depends on a history write succeeding. The two writes
+    // are not atomic: if this insert fails the task is already saved and the
+    // assignee is correct, but this particular history entry is lost. The repo
+    // has no transaction/session infrastructure and the dev MongoDB is not a
+    // replica set, so accepting this rather than introducing transactions for
+    // one feature is a deliberate tradeoff.
+    if (dto.assigneeId !== undefined) {
+      const newAssigneeId = task.assigneeId ?? null;
+      if (!sameAssignee(previousAssigneeId, newAssigneeId)) {
+        await this.taskActivitiesService.recordAssigneeChange({
+          taskId: task._id,
+          actorId: userId,
+          previousAssigneeId,
+          newAssigneeId,
+        });
+      }
+    }
 
     return this.toDetail(task, access.project);
   }
@@ -267,4 +290,11 @@ function toCreatorSummary(user: Parameters<typeof toUserSummary>[0] | undefined)
 
 function toAssigneeSummary(user: Parameters<typeof toUserSummary>[0] | undefined) {
   return user ? toUserSummary(user) : null;
+}
+
+function sameAssignee(a: Types.ObjectId | null, b: Types.ObjectId | null): boolean {
+  if (a === null || b === null) {
+    return a === b;
+  }
+  return a.equals(b);
 }

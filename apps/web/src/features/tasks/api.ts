@@ -1,5 +1,6 @@
 import type {
   Paginated,
+  TaskActivityEntry,
   TaskDetail,
   TaskPriority,
   TaskStatus,
@@ -30,6 +31,15 @@ export function fetchProjectTasks(projectId: string): Promise<Paginated<TaskSumm
   });
 }
 
+/** The timeline shows the newest page; the backend paginates fully. */
+const ACTIVITY_PAGE_SIZE = 50;
+
+export function fetchTaskActivity(taskId: string): Promise<Paginated<TaskActivityEntry>> {
+  return apiRequest<Paginated<TaskActivityEntry>>(`/tasks/${taskId}/activity`, {
+    query: { page: 1, pageSize: ACTIVITY_PAGE_SIZE },
+  });
+}
+
 export function fetchTask(taskId: string): Promise<TaskDetail> {
   return apiRequest<TaskDetail>(`/tasks/${taskId}`);
 }
@@ -48,10 +58,7 @@ export function updateTaskStatus(taskId: string, status: TaskStatus): Promise<Ta
   });
 }
 
-export function updateTask(
-  taskId: string,
-  payload: UpdateTaskPayload,
-): Promise<TaskDetail> {
+export function updateTask(taskId: string, payload: UpdateTaskPayload): Promise<TaskDetail> {
   return apiRequest<TaskDetail>(`/tasks/${taskId}`, {
     method: 'PATCH',
     body: payload,

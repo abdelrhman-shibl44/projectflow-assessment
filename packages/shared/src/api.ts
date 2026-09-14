@@ -1,5 +1,6 @@
 import type { OrganizationRole, ProjectRole } from './roles';
 import type { TaskPriority, TaskStatus } from './tasks';
+import { TASK_ACTIVITY_TYPE_ASSIGNEE_CHANGED } from './constants';
 
 /** A user as returned by the API. Never carries credential material. */
 export interface UserSummary {
@@ -67,6 +68,17 @@ export interface CommentEntry {
   author: UserSummary;
   createdAt: string;
   updatedAt: string;
+}
+
+/** A recorded task change, resolved to the users involved. */
+export interface TaskActivityEntry {
+  id: string;
+  taskId: string;
+  type: typeof TASK_ACTIVITY_TYPE_ASSIGNEE_CHANGED;
+  actor: UserSummary;
+  previousAssignee: UserSummary | null;
+  newAssignee: UserSummary | null;
+  createdAt: string;
 }
 
 export interface AuthSession {

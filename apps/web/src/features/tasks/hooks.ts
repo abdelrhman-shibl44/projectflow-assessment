@@ -1,13 +1,20 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { Paginated, TaskDetail, TaskStatus, TaskSummary } from '@projectflow/shared';
+import type {
+  Paginated,
+  TaskActivityEntry,
+  TaskDetail,
+  TaskStatus,
+  TaskSummary,
+} from '@projectflow/shared';
 import { queryKeys } from '@/lib/query-keys';
 import {
   createTask,
   type CreateTaskPayload,
   fetchProjectTasks,
   fetchTask,
+  fetchTaskActivity,
   updateTask,
   type UpdateTaskPayload,
   updateTaskStatus,
@@ -62,7 +69,18 @@ export function useUpdateTask(taskId: string, projectId: string) {
     mutationFn: (payload) => updateTask(taskId, payload),
     onSuccess: async (task) => {
       queryClient.setQueryData(queryKeys.task(taskId), task);
-      await queryClient.invalidateQueries({ queryKey: queryKeys.projectTasks(projectId) });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: queryKeys.projectTasks(projectId) }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.taskActivities(taskId) }),
+      ]);
     },
+  });
+}
+
+export function useTaskActivity(taskId: string) {
+  return useQuery<Paginated<TaskActivityEntry>>({
+    queryKey: queryKeys.taskActivities(taskId),
+    queryFn: () => fetchTaskActivity(taskId),
+    enabled: taskId.length > 0,
   });
 }
