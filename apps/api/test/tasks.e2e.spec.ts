@@ -291,4 +291,71 @@ describe('Tasks', () => {
       });
     });
   });
+
+  describe('authorization regression', () => {
+    let regressionTaskId: string;
+
+    beforeEach(async () => {
+      const response = await request(app.getHttpServer())
+        .post(`/projects/${projectId}/tasks`)
+        .set('Authorization', authHeader(member))
+        .send({ title: 'Regression test task' })
+        .expect(201);
+      regressionTaskId = response.body.id;
+    });
+
+    it('refuses to let an outsider update task fields', async () => {
+      await request(app.getHttpServer())
+        .patch(`/tasks/${regressionTaskId}`)
+        .set('Authorization', authHeader(outsider))
+        .send({ title: 'Hacked title' })
+        .expect(403);
+
+      const response = await request(app.getHttpServer())
+        .get(`/tasks/${regressionTaskId}`)
+        .set('Authorization', authHeader(member))
+        .expect(200);
+      expect(response.body.title).toBe('Regression test task');
+    });
+
+    it('refuses to let an outsider update task status', async () => {
+      await request(app.getHttpServer())
+        .patch(`/tasks/${regressionTaskId}/status`)
+        .set('Authorization', authHeader(outsider))
+        .send({ status: TaskStatus.DONE })
+        .expect(403);
+
+      const response = await request(app.getHttpServer())
+        .get(`/tasks/${regressionTaskId}`)
+        .set('Authorization', authHeader(member))
+        .expect(200);
+      expect(response.body.status).toBe(TaskStatus.TODO);
+    });
+
+    it('refuses to let an outsider delete a task', async () => {
+      await request(app.getHttpServer())
+        .delete(`/tasks/${regressionTaskId}`)
+        .set('Authorization', authHeader(outsider))
+        .expect(403);
+
+      await request(app.getHttpServer())
+        .get(`/tasks/${regressionTaskId}`)
+        .set('Authorization', authHeader(member))
+        .expect(200);
+    });
+
+    it('refuses to let a regular member edit a task they did not create', async () => {
+      await request(app.getHttpServer())
+        .patch(`/tasks/${regressionTaskId}`)
+        .set('Authorization', authHeader(colleague))
+        .send({ title: 'Should not change' })
+        .expect(403);
+
+      const response = await request(app.getHttpServer())
+        .get(`/tasks/${regressionTaskId}`)
+        .set('Authorization', authHeader(member))
+        .expect(200);
+      expect(response.body.title).toBe('Regression test task');
+    });
+  });
 });
