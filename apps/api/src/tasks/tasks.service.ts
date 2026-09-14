@@ -9,6 +9,7 @@ import { ProjectMembersService } from '../project-members/project-members.servic
 import { Project, type ProjectDocument } from '../projects/schemas/project.schema';
 import { TaskActivitiesService } from '../task-activities/task-activities.service';
 import { UsersService } from '../users/users.service';
+import { TaskCountersService } from './task-counters.service';
 import type { CreateTaskDto } from './dto/create-task.dto';
 import type { ListTasksQueryDto } from './dto/list-tasks.dto';
 import type { UpdateTaskDto } from './dto/update-task.dto';
@@ -24,6 +25,7 @@ export class TasksService {
     private readonly projectAccessService: ProjectAccessService,
     private readonly projectMembersService: ProjectMembersService,
     private readonly taskActivitiesService: TaskActivitiesService,
+    private readonly taskCountersService: TaskCountersService,
     private readonly usersService: UsersService,
   ) {}
 
@@ -62,8 +64,7 @@ export class TasksService {
   ): Promise<TaskDetail> {
     const { project } = await this.projectAccessService.assertCanView(projectId, userId);
 
-    const taskCount = await this.taskModel.countDocuments({ projectId });
-    const number = taskCount + 1;
+    const number = await this.taskCountersService.allocateNextNumber(projectId);
 
     const task = await this.taskModel.create({
       projectId,

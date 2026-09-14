@@ -19,10 +19,10 @@ describe('Tasks', () => {
   let connection: Connection;
 
   let owner: TestUser;
-  let manager: TestUser;   // PROJECT_MANAGER on the project
-  let member: TestUser;    // regular project MEMBER
+  let manager: TestUser; // PROJECT_MANAGER on the project
+  let member: TestUser; // regular project MEMBER
   let colleague: TestUser; // regular project MEMBER
-  let outsider: TestUser;  // no org/project access
+  let outsider: TestUser; // no org/project access
   let projectId: string;
   let taskId: string;
 
@@ -159,14 +159,7 @@ describe('Tasks', () => {
 
   describe('task assignment', () => {
     beforeEach(async () => {
-      taskId = await createTask(
-        connection,
-        projectId,
-        'ENG',
-        1,
-        'Assignment target',
-        owner.id,
-      );
+      taskId = await createTask(connection, projectId, 'ENG', 1, 'Assignment target', owner.id);
     });
 
     it('lets a project member assign themselves', async () => {
@@ -356,6 +349,115 @@ describe('Tasks', () => {
         .set('Authorization', authHeader(member))
         .expect(200);
       expect(response.body.title).toBe('Regression test task');
+    });
+  });
+
+  describe('task numbering', () => {
+    it('assigns unique, sequential numbers under concurrent creation', async () => {
+      const responses = await Promise.all(
+        Array.from({ length: 25 }, (_, index) =>
+          request(app.getHttpServer())
+            .post(`/projects/${projectId}/tasks`)
+            .set('Authorization', authHeader(member))
+            .send({ title: `Concurrent task ${index + 1}` })
+            .expect(201),
+        ),
+      );
+
+      const numbers = responses.map((response) => response.body.number as number);
+      expect(new Set(numbers).size).toBe(25);
+      expect([...numbers].sort((a, b) => a - b)).toEqual(
+        Array.from({ length: 25 }, (_, index) => index + 1),
+      );
+
+      const keys = responses.map((response) => response.body.key as string);
+      expect(new Set(keys).size).toBe(25);
+
+      const count = await connection
+        .collection('tasks')
+        .countDocuments({ projectId: new connection.base.Types.ObjectId(projectId) });
+      expect(count).toBe(25);
+    });
+
+    it('rejects a duplicate projectId + number at the database level', async () => {
+      await connection.model('Task').init();
+
+      const projectObjectId = new connection.base.Types.ObjectId(projectId);
+      const createdBy = new connection.base.Types.ObjectId(owner.id);
+      const taskDocument = {
+        projectId: projectObjectId,
+        number: 1,
+        key: 'ENG-1',
+        title: 'First task',
+        description: null,
+        status: TaskStatus.TODO,
+        priority: TaskPriority.MEDIUM,
+        createdBy,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      await connection.collection('tasks').insertOne(taskDocument);
+
+      await expect(connection.collection('tasks').insertOne(taskDocument)).rejects.toMatchObject({
+        code: 11000,
+      });
+    });
+
+    it('starts numbering at max(existing number) + 1 when no counter exists', async () => {
+      await createTask(connection, projectId, 'ENG', 1, 'Existing one', owner.id);
+      await createTask(connection, projectId, 'ENG', 2, 'Existing two', owner.id);
+      await createTask(connection, projectId, 'ENG', 3, 'Existing three', owner.id);
+
+      const response = await request(app.getHttpServer())
+        .post(`/projects/${projectId}/tasks`)
+        .set('Authorization', authHeader(member))
+        .send({ title: 'Next task' })
+        .expect(201);
+
+      expect(response.body.number).toBe(4);
+      expect(response.body.key).toBe('ENG-4');
+    });
+
+    it('does not reuse a deleted task number', async () => {
+      const first = await request(app.getHttpServer())
+        .post(`/projects/${projectId}/tasks`)
+        .set('Authorization', authHeader(member))
+        .send({ title: 'First task' })
+        .expect(201);
+      const second = await request(app.getHttpServer())
+        .post(`/projects/${projectId}/tasks`)
+        .set('Authorization', authHeader(member))
+        .send({ title: 'Second task' })
+        .expect(201);
+      const third = await request(app.getHttpServer())
+        .post(`/projects/${projectId}/tasks`)
+        .set('Authorization', authHeader(member))
+        .send({ title: 'Third task' })
+        .expect(201);
+
+      expect(first.body.number).toBe(1);
+      expect(second.body.number).toBe(2);
+      expect(third.body.number).toBe(3);
+
+      await request(app.getHttpServer())
+        .delete(`/tasks/${third.body.id}`)
+        .set('Authorization', authHeader(owner))
+        .expect(204);
+
+      const replacement = await request(app.getHttpServer())
+        .post(`/projects/${projectId}/tasks`)
+        .set('Authorization', authHeader(member))
+        .send({ title: 'Replacement task' })
+        .expect(201);
+
+      expect(replacement.body.number).toBe(4);
+      expect(replacement.body.key).toBe('ENG-4');
+
+      const count = await connection
+        .collection('tasks')
+        .countDocuments({ projectId: new connection.base.Types.ObjectId(projectId) });
+      expect(count).toBe(3);
     });
   });
 });
