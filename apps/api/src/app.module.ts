@@ -27,6 +27,10 @@ import { UsersModule } from './users/users.module';
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
         uri: configService.getOrThrow<string>('MONGODB_URI'),
+        // Serverless: fail fast instead of buffering queries until the
+        // function's execution limit is hit.
+        bufferCommands: false,
+        serverSelectionTimeoutMS: 5000,
       }),
     }),
     AuthModule,
