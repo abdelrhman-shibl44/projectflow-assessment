@@ -5,6 +5,7 @@ import type { Paginated, TaskDetail, TaskSummary } from '@projectflow/shared';
 import { toUserSummary } from '../common/utils/serialize';
 import { Comment, type CommentDocument } from '../comments/schemas/comment.schema';
 import { canManage, ProjectAccessService } from '../projects/project-access.service';
+import { ProjectMembersService } from '../project-members/project-members.service';
 import { Project, type ProjectDocument } from '../projects/schemas/project.schema';
 import { UsersService } from '../users/users.service';
 import type { CreateTaskDto } from './dto/create-task.dto';
@@ -20,6 +21,7 @@ export class TasksService {
     @InjectModel(Project.name) private readonly projectModel: Model<ProjectDocument>,
     @InjectModel(Comment.name) private readonly commentModel: Model<CommentDocument>,
     private readonly projectAccessService: ProjectAccessService,
+    private readonly projectMembersService: ProjectMembersService,
     private readonly usersService: UsersService,
   ) {}
 
@@ -91,7 +93,15 @@ export class TasksService {
     const access = await this.projectAccessService.assertCanView(task.projectId, userId);
 
     const isCreator = task.createdBy.equals(userId);
-    if (!canManage(access) && !isCreator) {
+    const canEditTask = canManage(access) || isCreator;
+
+    const hasNonAssigneeChanges =
+      dto.title !== undefined ||
+      dto.description !== undefined ||
+      dto.status !== undefined ||
+      dto.priority !== undefined;
+
+    if (hasNonAssigneeChanges && !canEditTask) {
       throw new ForbiddenException('You do not have permission to edit this task');
     }
 
@@ -108,18 +118,58 @@ export class TasksService {
       task.priority = dto.priority;
     }
 
+    if (dto.assigneeId !== undefined) {
+      const newAssigneeId = dto.assigneeId ? new Types.ObjectId(dto.assigneeId) : null;
+
+      const isSelfAssignment = newAssigneeId !== null && newAssigneeId.equals(userId);
+
+      const isSelfUnassignment = newAssigneeId === null && task.assigneeId?.equals(userId);
+
+      if (!canManage(access) && !isSelfAssignment && !isSelfUnassignment) {
+        throw new ForbiddenException(
+          'You do not have permission to assign this task to another user',
+        );
+      }
+
+      if (newAssigneeId) {
+        const projectMember = await this.projectMembersService.findExisting(
+          task.projectId,
+          newAssigneeId,
+        );
+
+        if (!projectMember) {
+          throw new ForbiddenException('Assignee must be a member of the project');
+        }
+      }
+
+      task.assigneeId = newAssigneeId;
+    }
+
     await task.save();
 
     return this.toDetail(task, access.project);
   }
 
-  async updateStatus(taskId: Types.ObjectId, dto: UpdateTaskStatusDto): Promise<TaskDetail> {
+  async updateStatus(
+    taskId: Types.ObjectId,
+    userId: Types.ObjectId,
+    dto: UpdateTaskStatusDto,
+  ): Promise<TaskDetail> {
     const task = await this.findTaskOrFail(taskId);
+
+    const { project } = await this.projectAccessService.assertCanView(task.projectId, userId);
+
+    const access = await this.projectAccessService.resolve(task.projectId, userId);
+
+    const isCreator = task.createdBy.equals(userId);
+    if (!canManage(access) && !isCreator) {
+      throw new ForbiddenException('You do not have permission to edit this task');
+    }
 
     task.status = dto.status;
     await task.save();
 
-    return this.toDetail(task);
+    return this.toDetail(task, project);
   }
 
   async remove(taskId: Types.ObjectId, userId: Types.ObjectId): Promise<void> {
