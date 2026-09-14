@@ -350,6 +350,50 @@ describe('Tasks', () => {
         .expect(200);
       expect(response.body.title).toBe('Regression test task');
     });
+
+    it('lets an authorized manager update task status', async () => {
+      await request(app.getHttpServer())
+        .patch(`/tasks/${regressionTaskId}/status`)
+        .set('Authorization', authHeader(manager))
+        .send({ status: TaskStatus.DONE })
+        .expect(200);
+
+      const response = await request(app.getHttpServer())
+        .get(`/tasks/${regressionTaskId}`)
+        .set('Authorization', authHeader(member))
+        .expect(200);
+      expect(response.body.status).toBe(TaskStatus.DONE);
+    });
+
+    it('lets the task creator edit their own task', async () => {
+      const response = await request(app.getHttpServer())
+        .patch(`/tasks/${regressionTaskId}`)
+        .set('Authorization', authHeader(member))
+        .send({ title: 'Renamed by the creator' })
+        .expect(200);
+
+      expect(response.body.title).toBe('Renamed by the creator');
+
+      const current = await request(app.getHttpServer())
+        .get(`/tasks/${regressionTaskId}`)
+        .set('Authorization', authHeader(member))
+        .expect(200);
+      expect(current.body.title).toBe('Renamed by the creator');
+    });
+
+    it('refuses to let a non-creator regular member update task status', async () => {
+      await request(app.getHttpServer())
+        .patch(`/tasks/${regressionTaskId}/status`)
+        .set('Authorization', authHeader(colleague))
+        .send({ status: TaskStatus.DONE })
+        .expect(403);
+
+      const response = await request(app.getHttpServer())
+        .get(`/tasks/${regressionTaskId}`)
+        .set('Authorization', authHeader(member))
+        .expect(200);
+      expect(response.body.status).toBe(TaskStatus.TODO);
+    });
   });
 
   describe('task numbering', () => {

@@ -77,6 +77,21 @@ describe('Task activities', () => {
     expect(response.body).toMatchObject({ total: 0, items: [] });
   });
 
+  it('records no activity when only a non-assignee field changes', async () => {
+    await request(app.getHttpServer())
+      .patch(`/tasks/${taskId}`)
+      .set('Authorization', authHeader(owner))
+      .send({ description: 'Details about the task scope' })
+      .expect(200);
+
+    const response = await request(app.getHttpServer())
+      .get(`/tasks/${taskId}/activity`)
+      .set('Authorization', authHeader(member))
+      .expect(200);
+
+    expect(response.body).toMatchObject({ total: 0, items: [] });
+  });
+
   it('creates an activity record when an assignee is set', async () => {
     await request(app.getHttpServer())
       .patch(`/tasks/${taskId}`)
