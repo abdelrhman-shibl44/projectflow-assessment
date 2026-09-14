@@ -9,6 +9,7 @@ import {
   authHeader,
   createOrganization,
   createProject,
+  createTask,
   registerUser,
   type TestUser,
 } from './utils/fixtures';
@@ -18,9 +19,12 @@ describe('Tasks', () => {
   let connection: Connection;
 
   let owner: TestUser;
-  let member: TestUser;
-  let outsider: TestUser;
+  let manager: TestUser;   // PROJECT_MANAGER on the project
+  let member: TestUser;    // regular project MEMBER
+  let colleague: TestUser; // regular project MEMBER
+  let outsider: TestUser;  // no org/project access
   let projectId: string;
+  let taskId: string;
 
   beforeAll(async () => {
     ({ app, connection } = await createTestApp());
@@ -34,7 +38,9 @@ describe('Tasks', () => {
     await resetDatabase(connection);
 
     owner = await registerUser(app, 'Ammar Yaser', 'ammar@example.com');
+    manager = await registerUser(app, 'Ahmed Hassan', 'ahmed@example.com');
     member = await registerUser(app, 'Magd Ali', 'magd@example.com');
+    colleague = await registerUser(app, 'Sarah Ahmed', 'sarah@example.com');
     outsider = await registerUser(app, 'Outside User', 'outside@example.com');
 
     const organizationId = await createOrganization(
@@ -44,7 +50,9 @@ describe('Tasks', () => {
       owner.id,
     );
     await addOrganizationMember(connection, organizationId, owner.id, OrganizationRole.OWNER);
+    await addOrganizationMember(connection, organizationId, manager.id, OrganizationRole.MEMBER);
     await addOrganizationMember(connection, organizationId, member.id, OrganizationRole.MEMBER);
+    await addOrganizationMember(connection, organizationId, colleague.id, OrganizationRole.MEMBER);
 
     projectId = await createProject(
       connection,
@@ -53,7 +61,9 @@ describe('Tasks', () => {
       'ENG',
       owner.id,
     );
+    await addProjectMember(connection, projectId, manager.id, ProjectRole.PROJECT_MANAGER);
     await addProjectMember(connection, projectId, member.id, ProjectRole.MEMBER);
+    await addProjectMember(connection, projectId, colleague.id, ProjectRole.MEMBER);
   });
 
   it('lets a project member create a task', async () => {
@@ -145,5 +155,140 @@ describe('Tasks', () => {
 
     expect(response.body.total).toBe(1);
     expect(response.body.items[0]).toMatchObject({ title: 'Work in flight' });
+  });
+
+  describe('task assignment', () => {
+    beforeEach(async () => {
+      taskId = await createTask(
+        connection,
+        projectId,
+        'ENG',
+        1,
+        'Assignment target',
+        owner.id,
+      );
+    });
+
+    it('lets a project member assign themselves', async () => {
+      const response = await request(app.getHttpServer())
+        .patch(`/tasks/${taskId}`)
+        .set('Authorization', authHeader(member))
+        .send({ assigneeId: member.id })
+        .expect(200);
+
+      expect(response.body.assignee).toMatchObject({
+        id: member.id,
+        email: 'magd@example.com',
+      });
+    });
+
+    it('lets a project member unassign themselves', async () => {
+      await request(app.getHttpServer())
+        .patch(`/tasks/${taskId}`)
+        .set('Authorization', authHeader(member))
+        .send({ assigneeId: member.id })
+        .expect(200);
+
+      const response = await request(app.getHttpServer())
+        .patch(`/tasks/${taskId}`)
+        .set('Authorization', authHeader(member))
+        .send({ assigneeId: null })
+        .expect(200);
+
+      expect(response.body.assignee).toBeNull();
+    });
+
+    it('refuses to let a regular member assign another project member', async () => {
+      await request(app.getHttpServer())
+        .patch(`/tasks/${taskId}`)
+        .set('Authorization', authHeader(member))
+        .send({ assigneeId: colleague.id })
+        .expect(403);
+    });
+
+    it('refuses to let a regular member unassign another user', async () => {
+      await request(app.getHttpServer())
+        .patch(`/tasks/${taskId}`)
+        .set('Authorization', authHeader(manager))
+        .send({ assigneeId: colleague.id })
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .patch(`/tasks/${taskId}`)
+        .set('Authorization', authHeader(member))
+        .send({ assigneeId: null })
+        .expect(403);
+    });
+
+    it('lets an authorized manager assign another project member', async () => {
+      const response = await request(app.getHttpServer())
+        .patch(`/tasks/${taskId}`)
+        .set('Authorization', authHeader(manager))
+        .send({ assigneeId: colleague.id })
+        .expect(200);
+
+      expect(response.body.assignee).toMatchObject({ id: colleague.id });
+    });
+
+    it('refuses to assign a user outside the project', async () => {
+      await request(app.getHttpServer())
+        .patch(`/tasks/${taskId}`)
+        .set('Authorization', authHeader(manager))
+        .send({ assigneeId: outsider.id })
+        .expect(403);
+    });
+
+    it('refuses to let a user outside the project modify a task', async () => {
+      await request(app.getHttpServer())
+        .patch(`/tasks/${taskId}`)
+        .set('Authorization', authHeader(outsider))
+        .send({ assigneeId: outsider.id })
+        .expect(403);
+    });
+
+    it('returns the assignee on the task detail', async () => {
+      await request(app.getHttpServer())
+        .patch(`/tasks/${taskId}`)
+        .set('Authorization', authHeader(manager))
+        .send({ assigneeId: colleague.id })
+        .expect(200);
+
+      const response = await request(app.getHttpServer())
+        .get(`/tasks/${taskId}`)
+        .set('Authorization', authHeader(member))
+        .expect(200);
+
+      expect(response.body.assignee).toMatchObject({
+        id: colleague.id,
+        email: 'sarah@example.com',
+      });
+    });
+
+    it('returns a null assignee for an unassigned task', async () => {
+      const response = await request(app.getHttpServer())
+        .get(`/tasks/${taskId}`)
+        .set('Authorization', authHeader(member))
+        .expect(200);
+
+      expect(response.body.assignee).toBeNull();
+    });
+
+    it('returns the assignee in the task list', async () => {
+      await request(app.getHttpServer())
+        .patch(`/tasks/${taskId}`)
+        .set('Authorization', authHeader(manager))
+        .send({ assigneeId: colleague.id })
+        .expect(200);
+
+      const response = await request(app.getHttpServer())
+        .get(`/projects/${projectId}/tasks`)
+        .set('Authorization', authHeader(member))
+        .expect(200);
+
+      expect(response.body.items[0].assignee).toMatchObject({
+        id: colleague.id,
+        email: 'sarah@example.com',
+      });
+    });
   });
 });

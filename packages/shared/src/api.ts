@@ -49,6 +49,7 @@ export interface TaskSummary {
   status: TaskStatus;
   priority: TaskPriority;
   commentCount: number;
+  assignee: UserSummary | null;
   createdBy: UserSummary;
   createdAt: string;
   updatedAt: string;

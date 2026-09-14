@@ -192,8 +192,13 @@ export class TasksService {
       return [];
     }
 
-    const [creators, commentRows] = await Promise.all([
+    const assigneeIds = tasks
+      .map((task) => task.assigneeId)
+      .filter((id): id is Types.ObjectId => id !== null && id !== undefined);
+
+    const [creators, assignees, commentRows] = await Promise.all([
       this.usersService.findManyByIds(tasks.map((task) => task.createdBy)),
+      assigneeIds.length > 0 ? this.usersService.findManyByIds(assigneeIds) : Promise.resolve([]),
       this.commentModel
         .aggregate<{
           _id: Types.ObjectId;
@@ -206,21 +211,27 @@ export class TasksService {
     ]);
 
     const creatorsById = new Map(creators.map((user) => [user._id.toString(), user]));
+    const assigneesById = new Map(assignees.map((user) => [user._id.toString(), user]));
     const commentCounts = new Map(commentRows.map((row) => [row._id.toString(), row.count]));
 
-    return tasks.map((task) => ({
-      id: task._id.toString(),
-      projectId: task.projectId.toString(),
-      number: task.number,
-      key: task.key,
-      title: task.title,
-      status: task.status,
-      priority: task.priority,
-      commentCount: commentCounts.get(task._id.toString()) ?? 0,
-      createdBy: toCreatorSummary(creatorsById.get(task.createdBy.toString())),
-      createdAt: task.createdAt.toISOString(),
-      updatedAt: task.updatedAt.toISOString(),
-    }));
+    return tasks.map((task) => {
+      const assigneeId = task.assigneeId?.toString();
+
+      return {
+        id: task._id.toString(),
+        projectId: task.projectId.toString(),
+        number: task.number,
+        key: task.key,
+        title: task.title,
+        status: task.status,
+        priority: task.priority,
+        commentCount: commentCounts.get(task._id.toString()) ?? 0,
+        assignee: assigneeId ? toAssigneeSummary(assigneesById.get(assigneeId)) : null,
+        createdBy: toCreatorSummary(creatorsById.get(task.createdBy.toString())),
+        createdAt: task.createdAt.toISOString(),
+        updatedAt: task.updatedAt.toISOString(),
+      };
+    });
   }
 
   private async toDetail(task: TaskDocument, project?: ProjectDocument): Promise<TaskDetail> {
@@ -252,4 +263,8 @@ const DELETED_USER = {
 
 function toCreatorSummary(user: Parameters<typeof toUserSummary>[0] | undefined) {
   return user ? toUserSummary(user) : DELETED_USER;
+}
+
+function toAssigneeSummary(user: Parameters<typeof toUserSummary>[0] | undefined) {
+  return user ? toUserSummary(user) : null;
 }

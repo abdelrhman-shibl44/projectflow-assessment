@@ -30,6 +30,8 @@ export function TaskRow({ task, href }: TaskRowProps) {
         <TaskPriorityBadge priority={task.priority} />
       </span>
 
+      {task.assignee ? <Avatar user={task.assignee} size="sm" /> : null}
+
       <Avatar user={task.createdBy} size="sm" />
     </Link>
   );

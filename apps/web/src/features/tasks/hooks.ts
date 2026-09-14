@@ -8,6 +8,8 @@ import {
   type CreateTaskPayload,
   fetchProjectTasks,
   fetchTask,
+  updateTask,
+  type UpdateTaskPayload,
   updateTaskStatus,
 } from './api';
 
@@ -46,6 +48,18 @@ export function useUpdateTaskStatus(taskId: string, projectId: string) {
 
   return useMutation<TaskDetail, Error, TaskStatus>({
     mutationFn: (status) => updateTaskStatus(taskId, status),
+    onSuccess: async (task) => {
+      queryClient.setQueryData(queryKeys.task(taskId), task);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.projectTasks(projectId) });
+    },
+  });
+}
+
+export function useUpdateTask(taskId: string, projectId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<TaskDetail, Error, UpdateTaskPayload>({
+    mutationFn: (payload) => updateTask(taskId, payload),
     onSuccess: async (task) => {
       queryClient.setQueryData(queryKeys.task(taskId), task);
       await queryClient.invalidateQueries({ queryKey: queryKeys.projectTasks(projectId) });
