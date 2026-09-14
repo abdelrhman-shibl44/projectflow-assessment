@@ -1,6 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "pnpm turbo run build --filter=@projectflow/api",
+  "outputDirectory": "public",
   "rewrites": [
     {
       "source": "/(.*)",
