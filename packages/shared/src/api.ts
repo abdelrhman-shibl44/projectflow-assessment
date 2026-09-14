@@ -1,7 +1,6 @@
 import type { OrganizationRole, ProjectRole } from './roles';
 import type { TaskPriority, TaskStatus } from './tasks';
-import { TASK_ACTIVITY_TYPE_ASSIGNEE_CHANGED } from './constants';
-
+import type { TASK_ACTIVITY_TYPE_ASSIGNEE_CHANGED } from './constants';
 /** A user as returned by the API. Never carries credential material. */
 export interface UserSummary {
   id: string;
