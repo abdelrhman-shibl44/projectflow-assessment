@@ -9,12 +9,14 @@ let requestListener: RequestListener | null = null;
  * the boot/mongo handshake entirely.
  */
 async function getRequestListener(): Promise<RequestListener> {
-  if (!requestListener) {
-    const app = await createApp();
-    await app.init();
-    requestListener = app.getHttpAdapter().getInstance();
+  if (requestListener) {
+    return requestListener;
   }
-  return requestListener;
+  const app = await createApp();
+  await app.init();
+  const listener = app.getHttpAdapter().getInstance();
+  requestListener = listener;
+  return listener;
 }
 
 export default async function handler(
